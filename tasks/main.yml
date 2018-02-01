@@ -1,0 +1,77 @@
+---
+- name: Set a fact about the Ansible python interpreter
+  set_fact:
+    old_ansible_python_interpreter: "{{ ansible_python_interpreter | default('/usr/bin/python') }}"
+
+# Note that setting this via a play or task variable seems to not
+# evaluate the Jinja variable reference, so we use set_fact.
+- name: Update the Ansible python interpreter fact to point to the virtualenv
+  set_fact:
+    ansible_python_interpreter: "{{ os_volumes_venv }}/bin/python"
+
+- name: Query volume types in cinder
+  shell: >-
+    source {{ os_volumes_venv }}/bin/activate &&
+    openstack
+    {% for auth_name, auth_value in os_volumes_auth.items() %}
+    --os-{{ auth_name | replace('_', '-') }}='{{ auth_value }}'
+    {% endfor %}
+    --os-interface=public
+    volume type show {{ item.name }}
+  with_items: "{{ os_volumes_types }}"    
+  changed_when: False
+  failed_when: False
+  environment:
+    OS_IDENTITY_API_VERSION: 3
+  register: os_volumes_types_result
+  loop_control:
+    label: "{{ item.name }}"
+
+# NOTE: Currently updating volume types is not supported.
+- name: Ensure volume type is registered with cinder
+  shell: >-
+    source {{ os_volumes_venv }}/bin/activate &&
+    openstack
+    {% for auth_name, auth_value in os_volumes_auth.items() %}
+    --os-{{ auth_name | replace('_', '-') }}='{{ auth_value }}'
+    {% endfor %}
+    --os-interface=public
+    volume type create
+    {{ volume_type.name }}
+    {% if 'description' in volume_type %} --description '{{ volume_type.description }}'{% endif %}
+    {% if volume_type.get('public', True) %} --public{% else %} --private{% endif %}
+    {% for key, value in volume_type.get('extra_specs', {}).items() %} --property {{ key }}='{{ value }}'{% endfor %}
+  with_items: "{{ os_volumes_types_result.results }}"    
+  when: item.rc != 0
+  environment:
+    OS_IDENTITY_API_VERSION: 3
+  vars:
+    volume_type: "{{ item.item }}"
+  loop_control:
+    label: "{{ volume_type.name }}"
+
+# FIXME: Ansible's os_volume module cannot specify the project for a volume.
+- name: Ensure volume is registered with cinder
+  os_volume:
+    auth_type: "{{ os_volumes_auth_type }}"
+    auth: "{{ os_volumes_auth }}"
+    display_name: "{{ item.display_name }}"
+    display_description: "{{ item.display_description | default(omit) }}"
+    image: "{{ item.image | default(omit) }}"
+    scheduler_hints: "{{ item.scheduler_hints | default(omit) }}"
+    size: "{{ item.size | default(omit) }}"
+    snapshot_id: "{{ item.snapshot_id | default(omit) }}"
+    state: "{{ item.state | default(omit) }}"
+    volume: "{{ item.volume | default(omit) }}"
+    volume_type: "{{ item.volume_type | default(omit) }}"
+  with_items: "{{ os_volumes }}"
+  environment:
+    OS_IDENTITY_API_VERSION: 3
+  loop_control:
+    label: "{{ item.display_name }}"
+
+# This variable is unset before we set it, and it does not appear to be
+# possible to unset a variable in Ansible.
+- name: Set a fact to reset the Ansible python interpreter
+  set_fact:
+    ansible_python_interpreter: "{{ old_ansible_python_interpreter }}"

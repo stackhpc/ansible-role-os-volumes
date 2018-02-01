@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  author: Mark Goddard
+  description: >
+    Role to register volumes and volume types in OpenStack
+  company: StackHPC Ltd
+  license: Apache2
+  min_ansible_version: 2.0
+  platforms:
+    - name: EL
+      versions:
+        - 7
+  galaxy_tags:
+    - cloud
+    - cinder
+    - openstack
+
+dependencies:
+  - role: stackhpc.os-shade
+    os_shade_venv: "{{ os_volumes_venv }}"
+  - role: stackhpc.os-openstackclient
+    os_openstackclient_venv: "{{ os_volumes_venv }}"
